@@ -5,4 +5,4 @@
 # 4. Then, it would been creating "dist" folder and having the exe file
 
 # See more detail by linked URL :
-
+https://drive.google.com/file/d/1EHE8evQKSno4EX57QFd6RZvilOMZDtne/view?usp=share_link
