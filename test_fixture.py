@@ -9,6 +9,7 @@ from connect import *
 import serial
 import multiprocessing as mp
 from threading import Thread, Event
+from serial_port import ser_usb, get_fw_stage
 from tkinter.font import Font, nametofont
 from serial.tools.list_ports import comports
 from multiprocessing import Pipe, Value, Lock, freeze_support
@@ -24,7 +25,7 @@ gw_data = None
 am_off = None
 am_on = None
 am_error = None
-version = "v1.1"
+
 
 event = Event()
 shared_voltage = mp.Value('d', 0.0)
@@ -40,11 +41,18 @@ t3 = None
 t4 = None
 t5 = None
 
+version = "v1.1.1"
+'''
+###################################################
+Add new functionality of scanning maintainance mode
+###################################################
+'''
+
 class main_page():
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Y-Serial Testing Fixture Tool" + '  ' + version)        
-        self.root.geometry("800x340")
+        self.root.geometry("800x400")
         self.tab = ttk.Notebook(self.root)   
 
         # reset the font
@@ -98,6 +106,7 @@ class main_page():
         for p in comports():
             port_list.append(p.device)
         # print("Comport: " + str(port_list))
+       
 
         if arg_port != '' and not arg_port in port_list:
             print('Cannot find Port \'%s\'' % (arg_port))
@@ -108,6 +117,7 @@ class main_page():
         portChosen.current(0) 
         portChosen.bind("<<ComboboxSelected>>", click_comport)
         portChosen.grid(row=0, column=1, padx=3, pady=3, stick='w')
+        # portChosen = ttk.Combobox(self.sensor1, values=port_list)
 
         # Sensor
         def click_sensor(event):
@@ -326,8 +336,8 @@ class main_page():
             # gw_data.set("")
             # gw = tk.Entry(self.notebook_3, state='normal', textvariable=gw_data)
             while serialData: 
-                global nh3ppm, signed_temp, humi, rssi, battery
-                data = ser.readline()  
+                global nh3ppm, signed_temp, humi, rssi, battery 
+                data = gateway_ser.readline()
                 gw_data = tk.Label(self.notebook_3,
                             text=check_gatewayData(data),
                             borderwidth=0,
@@ -373,13 +383,15 @@ class main_page():
                    
 
         def connection():
-            global t4, ser, serialData
+            global t4, gateway_ser, serialData
             if connect_btn["text"] in "Disconnect":
                 serialData = False
                 connect_btn["text"] = "Connect"
                 refresh_btn["state"] = "active"
                 drop_bd["state"] = "active"
                 drop_COM["state"] = "active"
+                gateway_ser.close()
+                print("Gateway serial port close")
             else:
                 serialData = True
                 connect_btn["text"] = "Disconnect"
@@ -390,7 +402,7 @@ class main_page():
                 baud = clicked_bd.get()
 
                 try:
-                    ser = serial.Serial(port, baud, timeout=0.5)
+                    gateway_ser = serial.Serial(port, baud, timeout=0.5)
                 except:
                     pass
 
@@ -424,6 +436,7 @@ class main_page():
         self.notebook_3 = Notebook(self.tab3)
         self.notebook_3.pack(side=tk.TOP, fill=tk.BOTH, expand=tk.YES)
 
+        
         lb_Fixture = tk.Label(self.notebook_3, 
                     font=('Arial',24,'bold'), 
                     text="Probe A", 
@@ -456,6 +469,9 @@ class main_page():
                         text="Alarm State:",
                         anchor='nw')               
         lb_am.place(x=5, y=240)
+
+        lb_mt = ttk.Label(self.notebook_3, text='Maintenance mode: ', font=('Arial',18,'bold'))
+        lb_mt.place(x=5, y=300)
 
            
         def click_run(sen, ftime, tem, item, mtem, hum, ihum, mhum, nh3, inh3, mnh3, CO2, iCO2, mCO2, wind, iwind, mwind, port):
@@ -531,8 +547,36 @@ class main_page():
             run_btn['state'] = DISABLED
 
 
+        def scan_comport():
+            global portChosen_1
+            
+            # Scan for available serial ports
+            available_ports = list(comports())
+            ser_usb = [p.device for p in available_ports]
+            portChosen_1 = ttk.Combobox(self.notebook_3, values=ser_usb)
+            portChosen_1.place(x=240, y=305)
+
+
+        def maintenance_mode():
+            ser_usb.port = str(portChosen_1.get())
+            ser_usb.close()
+            ser_usb.open()
+            print("Port:", ser_usb.port)
+
+            from config_variable import variable_start
+            if get_fw_stage() == b'FW':
+                variable_start(display_win)
+                display_win.deiconify()
+
+    
+        display_win = tk.Tk()
+        display_win.withdraw()
+        display_win.title("")
+
+
         def reset(): 
-            global t, t1, t2, t3, pw_ok, pw_error, pb_ok, pb_error, gw_data, am_off, am_on, am_error
+            global t, t1, t2, t3, pw_ok, pw_error, pb_ok, pb_error, gw_data, am_off, am_on, am_error, ser_usb, portChosen_1
+            
             if p1.is_alive:
                 p1.terminate()
                 p1.join()
@@ -593,7 +637,6 @@ class main_page():
             else:
                 am_error = None
 
-
             ftime.set(0)
             ftempature.set(-20)
             iftem.set(5)
@@ -615,6 +658,9 @@ class main_page():
             probe_flag.value = 0
             alarm_flag.value = 0
 
+            
+            portChosen_1.destroy()
+            display_win.withdraw()
             run_btn['state'] = ACTIVE
             print("Reset")
 
@@ -627,7 +673,13 @@ class main_page():
             fNH3.get(), ifNH3.get(), mNH3.get(), fCO2.get(), ifCO2.get(), mCO2.get(), fwind.get(), ifwind.get(), mwind.get(), portChosen.get()))
 
         # Reset
-        ttk.Button(self.notebook_3, text="Reset", command=reset).place(x=680, y=100)    
+        ttk.Button(self.notebook_3, text="Reset", command=reset).place(x=680, y=100) 
+
+        # Scan Comport
+        ttk.Button(self.notebook_3, text="Scan Comport", command=scan_comport).place(x=675, y=270)  
+
+        # open
+        ttk.Button(self.notebook_3, text="Open", command=maintenance_mode).place(x=680, y=320)        
         
         self.root.mainloop()
 
@@ -662,6 +714,8 @@ class main_page():
 def main():
     display = main_page()
     display.root.mainloop()
+
+
           
 
 if __name__ == "__main__":
